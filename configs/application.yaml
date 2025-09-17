@@ -1,0 +1,5 @@
+spring:
+  config:
+    name: smart-weaver-app
+  profiles:
+    active: dev

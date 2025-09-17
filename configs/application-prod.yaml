@@ -1,0 +1,26 @@
+server:
+  port: 8091
+
+# 线程池配置
+thread:
+  pool:
+    executor:
+      config:
+        core-pool-size: 20
+        max-pool-size: 50
+        keep-alive-time: 5000
+        block-queue-size: 5000
+        policy: CallerRunsPolicy
+
+# 数据库配置
+spring:
+  datasource:
+    username: root
+    password: 123456
+    url: mysql://root:123456@127.0.0.1:3306/smart-weaver
+    driver-class-name: mysql
+
+# 日志
+logging:
+  level:
+    root: info
