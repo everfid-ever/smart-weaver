@@ -1,107 +1,108 @@
 package config
 
 import (
+	"log"
 	"sync"
+	"time"
 )
 
-// ThreadPool 线程池
-type ThreadPool struct {
-	workers     int
-	workerQueue chan chan func()
-	jobQueue    chan func()
-	quit        chan bool
-	wg          sync.WaitGroup
+type ThreadPoolConfigProperties struct {
+	CorePoolSize   int    `yaml:"corePoolSize"`
+	MaxPoolSize    int    `yaml:"maxPoolSize"`
+	KeepAliveTime  int64  `yaml:"keepAliveTime"` // 秒
+	BlockQueueSize int    `yaml:"blockQueueSize"`
+	Policy         string `yaml:"policy"` // AbortPolicy, DiscardPolicy, DiscardOldestPolicy, CallerRunsPolicy
 }
 
-// NewThreadPool 创建线程池
-func NewThreadPool(workers, queueSize int) *ThreadPool {
-	return &ThreadPool{
-		workers:     workers,
-		workerQueue: make(chan chan func(), workers),
-		jobQueue:    make(chan func(), queueSize),
-		quit:        make(chan bool),
+// ThreadPoolExecutor 模拟 Java 的 ThreadPoolExecutor
+type ThreadPoolExecutor struct {
+	corePoolSize  int
+	maxPoolSize   int
+	keepAliveTime time.Duration
+	queue         chan Task
+	policy        string
+
+	wg       sync.WaitGroup
+	shutdown chan struct{}
+}
+
+func NewThreadPoolExecutor(properties ThreadPoolConfigProperties) *ThreadPoolExecutor {
+	pool := &ThreadPoolExecutor{
+		corePoolSize:  properties.CorePoolSize,
+		maxPoolSize:   properties.MaxPoolSize,
+		keepAliveTime: time.Duration(properties.KeepAliveTime) * time.Second,
+		queue:         make(chan Task, properties.BlockQueueSize),
+		policy:        properties.Policy,
+		shutdown:      make(chan struct{}),
 	}
-}
 
-// Start 启动线程池
-func (tp *ThreadPool) Start() {
-	for i := 0; i < tp.workers; i++ {
-		worker := NewWorker(tp.workerQueue, tp.quit)
-		worker.Start()
+	// 启动核心线程
+	for i := 0; i < pool.corePoolSize; i++ {
+		go pool.worker()
 	}
-
-	go tp.dispatch()
+	return pool
 }
 
-// Submit 提交任务
-func (tp *ThreadPool) Submit(job func()) {
-	tp.jobQueue <- job
-}
-
-// Stop 停止线程池
-func (tp *ThreadPool) Stop() {
-	close(tp.quit)
-	tp.wg.Wait()
-}
-
-func (tp *ThreadPool) dispatch() {
+// worker 执行任务
+func (p *ThreadPoolExecutor) worker() {
 	for {
 		select {
-		case job := <-tp.jobQueue:
-			worker := <-tp.workerQueue
-			worker <- job
-		case <-tp.quit:
+		case task := <-p.queue:
+			if task != nil {
+				task()
+				p.wg.Done()
+			}
+		case <-p.shutdown:
 			return
 		}
 	}
 }
 
-// Worker 工作者
-type Worker struct {
-	workerPool chan chan func()
-	jobChannel chan func()
-	quit       chan bool
-}
-
-// NewWorker 创建工作者
-func NewWorker(workerPool chan chan func(), quit chan bool) *Worker {
-	return &Worker{
-		workerPool: workerPool,
-		jobChannel: make(chan func()),
-		quit:       quit,
-	}
-}
-
-// Start 启动工作者
-func (w *Worker) Start() {
-	go func() {
-		for {
-			w.workerPool <- w.jobChannel
-
+// Submit 提交任务
+func (p *ThreadPoolExecutor) Submit(task Task) {
+	p.wg.Add(1)
+	select {
+	case p.queue <- task:
+		// 成功入队
+	default:
+		switch p.policy {
+		case "AbortPolicy":
+			log.Panic("Task rejected: AbortPolicy")
+		case "DiscardPolicy":
+			p.wg.Done()
+		case "DiscardOldestPolicy":
 			select {
-			case job := <-w.jobChannel:
-				job()
-			case <-w.quit:
-				return
+			case <-p.queue:
+				p.queue <- task
+			default:
+				p.wg.Done()
 			}
+		case "CallerRunsPolicy":
+			task()
+			p.wg.Done()
+		default:
+			log.Panic("Task rejected: default AbortPolicy")
 		}
-	}()
+	}
 }
 
-// InitThreadPool 初始化线程池
-func InitThreadPool(cfg *Config) *ThreadPool {
-	coreSize := cfg.ThreadPool.Pool.Executor.Config.CorePoolSize
-	if coreSize == 0 {
-		coreSize = 20
+// Shutdown 等待任务完成并关闭
+func (p *ThreadPoolExecutor) Shutdown() {
+	p.wg.Wait()
+	close(p.shutdown)
+}
+
+// InitThreadPool 根据配置初始化线程池
+func InitThreadPool(cfg *Config) *ThreadPoolExecutor {
+	execDetail := cfg.ThreadPool.Pool.Executor.Config
+
+	properties := ThreadPoolConfigProperties{
+		CorePoolSize:   execDetail.CorePoolSize,
+		MaxPoolSize:    execDetail.MaxPoolSize,
+		KeepAliveTime:  execDetail.KeepAliveTime,
+		BlockQueueSize: execDetail.BlockQueueSize,
+		Policy:         execDetail.Policy,
 	}
 
-	queueSize := cfg.ThreadPool.Pool.Executor.Config.BlockQueueSize
-	if queueSize == 0 {
-		queueSize = 5000
-	}
-
-	tp := NewThreadPool(coreSize, queueSize)
-	tp.Start()
-
-	return tp
+	return NewThreadPoolExecutor(properties)
 }
