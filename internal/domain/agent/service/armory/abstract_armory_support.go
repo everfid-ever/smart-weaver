@@ -12,11 +12,6 @@ type AbstractArmorySupport struct {
 	Mu         sync.Mutex
 }
 
-// MultiThread 多线程方法，可由子类覆盖
-func (a *AbstractArmorySupport) MultiThread(req any, ctx any) error {
-	return nil
-}
-
 // RegisterDependency 注册依赖对象（线程安全），已存在则覆盖
 func (a *AbstractArmorySupport) RegisterDependency(name string, instance any) {
 	a.Mu.Lock()

@@ -22,19 +22,6 @@ type RootNode struct {
 	repository        Repository
 }
 
-// NewRootNode 创建根节点实例
-func NewRootNode(threadPoolSize int, repo Repository, aiClientModelNode StrategyHandler) *RootNode {
-	return &RootNode{
-		AbstractArmorySupport: &armory.AbstractArmorySupport{
-			ThreadPool: make(chan func(), threadPoolSize),
-			Deps:       make(map[string]any),
-			Mu:         sync.Mutex{},
-		},
-		repository:        repo,
-		aiClientModelNode: aiClientModelNode,
-	}
-}
-
 // MultiThread 覆盖父类的多线程方法
 func (r *RootNode) MultiThread(req any, ctx any) error {
 	requestParameter, ok := req.(*entity.AiAgentEngineStarterEntity)
@@ -144,9 +131,4 @@ func (r *RootNode) Router(requestParameter *entity.AiAgentEngineStarterEntity, d
 // SetAiClientModelNode 设置下一个节点（用于依赖注入）
 func (r *RootNode) SetAiClientModelNode(node StrategyHandler) {
 	r.aiClientModelNode = node
-}
-
-// GetRepository 获取仓库实例
-func (r *RootNode) GetRepository() Repository {
-	return r.repository
 }

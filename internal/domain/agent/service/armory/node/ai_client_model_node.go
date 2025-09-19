@@ -1,200 +1,287 @@
 package node
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
+
 	"smart-weaver/internal/domain/agent/model/entity"
 	"smart-weaver/internal/domain/agent/model/valobj"
 	"smart-weaver/internal/domain/agent/service/armory"
 	"smart-weaver/internal/domain/agent/service/armory/factory/context"
 )
 
-// OpenAiChatModel OpenAI聊天模型结构体
-type OpenAiChatModel struct {
-	ModelName       string
+// OpenAiApi OpenAI API配置（模拟Java中的OpenAiApi）
+type OpenAiApi struct {
 	BaseURL         string
 	APIKey          string
 	CompletionsPath string
 	EmbeddingsPath  string
-	ModelType       string
-	ModelVersion    string
-	Timeout         int
 }
 
-// ModelRegistry 模型注册器接口
-type ModelRegistry interface {
-	RegisterModel(beanName string, model *OpenAiChatModel) error
-	RemoveModel(beanName string) error
-	ContainsModel(beanName string) bool
-	GetModel(beanName string) *OpenAiChatModel
+// OpenAiChatOptions OpenAI聊天选项（模拟Java中的OpenAiChatOptions）
+type OpenAiChatOptions struct {
+	Model         string
+	ToolCallbacks interface{} // 工具回调
 }
 
-// DefaultModelRegistry 默认模型注册器实现
-type DefaultModelRegistry struct {
-	models map[string]*OpenAiChatModel
+// OpenAiChatModel OpenAI聊天模型（模拟Java中的OpenAiChatModel）
+type OpenAiChatModel struct {
+	OpenAiApi      *OpenAiApi
+	DefaultOptions *OpenAiChatOptions
 }
 
-// NewDefaultModelRegistry 创建默认模型注册器
-func NewDefaultModelRegistry() *DefaultModelRegistry {
-	return &DefaultModelRegistry{
-		models: make(map[string]*OpenAiChatModel),
+// SyncMcpToolCallbackProvider 同步MCP工具回调提供者（模拟Java中的SyncMcpToolCallbackProvider）
+type SyncMcpToolCallbackProvider struct {
+	McpSyncClients []McpSyncClient
+}
+
+// GetToolCallbacks 获取工具回调
+func (provider *SyncMcpToolCallbackProvider) GetToolCallbacks() interface{} {
+	// 模拟返回工具回调集合
+	callbacks := make(map[string]interface{})
+	for i, client := range provider.McpSyncClients {
+		callbacks[fmt.Sprintf("callback_%d", i)] = client
+	}
+	return callbacks
+}
+
+// NewSyncMcpToolCallbackProvider 创建同步MCP工具回调提供者
+func NewSyncMcpToolCallbackProvider(mcpSyncClients []McpSyncClient) *SyncMcpToolCallbackProvider {
+	return &SyncMcpToolCallbackProvider{
+		McpSyncClients: mcpSyncClients,
 	}
 }
 
-// RegisterModel 注册模型
-func (r *DefaultModelRegistry) RegisterModel(beanName string, model *OpenAiChatModel) error {
-	r.models[beanName] = model
-	return nil
+// OpenAiApiBuilder OpenAI API构建器
+type OpenAiApiBuilder struct {
+	baseURL         string
+	apiKey          string
+	completionsPath string
+	embeddingsPath  string
 }
 
-// RemoveModel 移除模型
-func (r *DefaultModelRegistry) RemoveModel(beanName string) error {
-	delete(r.models, beanName)
-	return nil
+// NewOpenAiApiBuilder 创建OpenAI API构建器
+func NewOpenAiApiBuilder() *OpenAiApiBuilder {
+	return &OpenAiApiBuilder{}
 }
 
-// ContainsModel 检查模型是否存在
-func (r *DefaultModelRegistry) ContainsModel(beanName string) bool {
-	_, exists := r.models[beanName]
-	return exists
+// BaseURL 设置BaseURL
+func (b *OpenAiApiBuilder) BaseURL(baseURL string) *OpenAiApiBuilder {
+	b.baseURL = baseURL
+	return b
 }
 
-// GetModel 获取模型
-func (r *DefaultModelRegistry) GetModel(beanName string) *OpenAiChatModel {
-	return r.models[beanName]
+// APIKey 设置APIKey
+func (b *OpenAiApiBuilder) APIKey(apiKey string) *OpenAiApiBuilder {
+	b.apiKey = apiKey
+	return b
+}
+
+// CompletionsPath 设置CompletionsPath
+func (b *OpenAiApiBuilder) CompletionsPath(completionsPath string) *OpenAiApiBuilder {
+	b.completionsPath = completionsPath
+	return b
+}
+
+// EmbeddingsPath 设置EmbeddingsPath
+func (b *OpenAiApiBuilder) EmbeddingsPath(embeddingsPath string) *OpenAiApiBuilder {
+	b.embeddingsPath = embeddingsPath
+	return b
+}
+
+// Build 构建OpenAiApi
+func (b *OpenAiApiBuilder) Build() *OpenAiApi {
+	return &OpenAiApi{
+		BaseURL:         b.baseURL,
+		APIKey:          b.apiKey,
+		CompletionsPath: b.completionsPath,
+		EmbeddingsPath:  b.embeddingsPath,
+	}
+}
+
+// OpenAiChatOptionsBuilder OpenAI聊天选项构建器
+type OpenAiChatOptionsBuilder struct {
+	model         string
+	toolCallbacks interface{}
+}
+
+// NewOpenAiChatOptionsBuilder 创建OpenAI聊天选项构建器
+func NewOpenAiChatOptionsBuilder() *OpenAiChatOptionsBuilder {
+	return &OpenAiChatOptionsBuilder{}
+}
+
+// Model 设置模型
+func (b *OpenAiChatOptionsBuilder) Model(model string) *OpenAiChatOptionsBuilder {
+	b.model = model
+	return b
+}
+
+// ToolCallbacks 设置工具回调
+func (b *OpenAiChatOptionsBuilder) ToolCallbacks(toolCallbacks interface{}) *OpenAiChatOptionsBuilder {
+	b.toolCallbacks = toolCallbacks
+	return b
+}
+
+// Build 构建OpenAiChatOptions
+func (b *OpenAiChatOptionsBuilder) Build() *OpenAiChatOptions {
+	return &OpenAiChatOptions{
+		Model:         b.model,
+		ToolCallbacks: b.toolCallbacks,
+	}
+}
+
+// OpenAiChatModelBuilder OpenAI聊天模型构建器
+type OpenAiChatModelBuilder struct {
+	openAiApi      *OpenAiApi
+	defaultOptions *OpenAiChatOptions
+}
+
+// NewOpenAiChatModelBuilder 创建OpenAI聊天模型构建器
+func NewOpenAiChatModelBuilder() *OpenAiChatModelBuilder {
+	return &OpenAiChatModelBuilder{}
+}
+
+// OpenAiApi 设置OpenAI API
+func (b *OpenAiChatModelBuilder) OpenAiApi(openAiApi *OpenAiApi) *OpenAiChatModelBuilder {
+	b.openAiApi = openAiApi
+	return b
+}
+
+// DefaultOptions 设置默认选项
+func (b *OpenAiChatModelBuilder) DefaultOptions(defaultOptions *OpenAiChatOptions) *OpenAiChatModelBuilder {
+	b.defaultOptions = defaultOptions
+	return b
+}
+
+// Build 构建OpenAiChatModel
+func (b *OpenAiChatModelBuilder) Build() *OpenAiChatModel {
+	return &OpenAiChatModel{
+		OpenAiApi:      b.openAiApi,
+		DefaultOptions: b.defaultOptions,
+	}
 }
 
 // AiClientModelNode AI客户端模型节点
 type AiClientModelNode struct {
 	*armory.AbstractArmorySupport
-	aiClientToolMcpNode StrategyHandler
-	modelRegistry       ModelRegistry
+	AiClientNode StrategyHandler
 }
 
-// NewAiClientModelNode 创建AI客户端模型节点
-func NewAiClientModelNode(aiClientToolMcpNode StrategyHandler) *AiClientModelNode {
+// NewAiClientModelNode 创建AiClientModelNode实例
+func NewAiClientModelNode(aiClientNode StrategyHandler) *AiClientModelNode {
 	return &AiClientModelNode{
 		AbstractArmorySupport: &armory.AbstractArmorySupport{
-			ThreadPool: make(chan func(), 100), // 创建容量为100的线程池
+			ThreadPool: make(chan func(), 100),
 			Deps:       make(map[string]any),
 		},
-		aiClientToolMcpNode: aiClientToolMcpNode,
-		modelRegistry:       NewDefaultModelRegistry(),
+		AiClientNode: aiClientNode,
 	}
 }
 
 // DoApply 执行应用逻辑
-func (n *AiClientModelNode) DoApply(requestParameter *entity.AiAgentEngineStarterEntity, dynamicContext *context.DynamicContext) (string, error) {
-	log.Println("AiAgent 装配，客户端模型")
+func (node *AiClientModelNode) DoApply(requestParameter *entity.AiAgentEngineStarterEntity, dynamicContext *context.DynamicContext) (string, error) {
+	reqJSON, _ := json.Marshal(requestParameter)
+	log.Printf("Ai Agent 构建，客户端构建节点 %s", string(reqJSON))
 
 	// 从动态上下文获取AI客户端模型列表
-	aiClientModelListInterface := dynamicContext.GetValue("aiClientModelList")
-	if aiClientModelListInterface == nil {
-		log.Println("warn: 没有可用的AI客户端模型配置")
-		// 即使没有模型配置，也继续执行下一个节点
-		return n.Router(requestParameter, dynamicContext)
+	aiClientModelListVal := dynamicContext.GetValue("aiClientModelList")
+	if aiClientModelListVal == nil {
+		log.Println("没有可用的AI客户端模型配置")
+		return "", nil
 	}
 
-	aiClientModelList, ok := aiClientModelListInterface.([]valobj.AiClientModelVO)
+	aiClientModelList, ok := aiClientModelListVal.([]valobj.AiClientModelVO)
 	if !ok || len(aiClientModelList) == 0 {
-		log.Println("warn: 没有可用的AI客户端模型配置")
-		// 即使没有模型配置，也继续执行下一个节点
-		return n.Router(requestParameter, dynamicContext)
+		log.Println("没有可用的AI客户端模型配置")
+		return "", nil
 	}
 
-	// 遍历模型列表，为每个模型创建对应的实例
+	// 遍历模型列表，为每个模型创建对应的Bean
 	for _, modelVO := range aiClientModelList {
-		// 构建Bean名称
-		beanName := fmt.Sprintf("AiClientModel%d", modelVO.ID)
-
 		// 创建OpenAiChatModel对象
-		chatModel, err := n.createOpenAiChatModel(modelVO)
+		chatModel, err := node.createOpenAiChatModel(modelVO)
 		if err != nil {
-			log.Printf("error: 创建OpenAiChatModel失败: %v", err)
+			log.Printf("创建OpenAiChatModel失败: %v", err)
 			continue
 		}
 
-		// 如果模型已存在，先移除
-		if n.modelRegistry.ContainsModel(beanName) {
-			if err := n.modelRegistry.RemoveModel(beanName); err != nil {
-				log.Printf("error: 移除现有模型失败: %v", err)
-			}
-		}
-
-		// 注册新的模型
-		if err := n.modelRegistry.RegisterModel(beanName, chatModel); err != nil {
-			log.Printf("error: 注册模型失败: %v", err)
-			continue
-		}
-
-		log.Printf("成功注册AI客户端模型: %s", beanName)
+		// 注册Bean
+		beanName := node.beanName(modelVO.ID)
+		node.RegisterDependency(beanName, chatModel)
 	}
 
-	return n.Router(requestParameter, dynamicContext)
+	return node.Router(requestParameter, dynamicContext)
 }
 
 // Get 获取下一个处理器
-func (n *AiClientModelNode) Get(requestParameter *entity.AiAgentEngineStarterEntity, dynamicContext *context.DynamicContext) (StrategyHandler, error) {
-	return n.aiClientToolMcpNode, nil
+func (node *AiClientModelNode) Get(requestParameter *entity.AiAgentEngineStarterEntity, dynamicContext *context.DynamicContext) (StrategyHandler, error) {
+	return node.AiClientNode, nil
 }
 
-// Router 路由方法
-func (n *AiClientModelNode) Router(requestParameter *entity.AiAgentEngineStarterEntity, dynamicContext *context.DynamicContext) (string, error) {
-	nextHandler, err := n.Get(requestParameter, dynamicContext)
+// Router 路由到下一个处理器
+func (node *AiClientModelNode) Router(requestParameter *entity.AiAgentEngineStarterEntity, dynamicContext *context.DynamicContext) (string, error) {
+	nextHandler, err := node.Get(requestParameter, dynamicContext)
 	if err != nil {
 		return "", err
 	}
-	if nextHandler != nil {
-		log.Println("AiClientModelNode 路由到下一个处理器")
-		return nextHandler.DoApply(requestParameter, dynamicContext)
+	if nextHandler == nil {
+		return "completed", nil
 	}
-	return "success", nil
+	return nextHandler.DoApply(requestParameter, dynamicContext)
 }
 
-// createOpenAiChatModel 创建OpenAI聊天模型
-func (n *AiClientModelNode) createOpenAiChatModel(modelVO valobj.AiClientModelVO) (*OpenAiChatModel, error) {
-	if modelVO.ModelName == "" {
-		return nil, fmt.Errorf("model name cannot be empty")
+// beanName 生成Bean名称
+func (node *AiClientModelNode) beanName(id int64) string {
+	return "AiClientModel_" + strconv.FormatInt(id, 10)
+}
+
+// createOpenAiChatModel 创建OpenAiChatModel对象
+func (node *AiClientModelNode) createOpenAiChatModel(modelVO valobj.AiClientModelVO) (*OpenAiChatModel, error) {
+	// 构建OpenAiApi
+	openAiApi := NewOpenAiApiBuilder().
+		BaseURL(modelVO.BaseURL).
+		APIKey(modelVO.APIKey).
+		CompletionsPath(modelVO.CompletionsPath).
+		EmbeddingsPath(modelVO.EmbeddingsPath).
+		Build()
+
+	// 收集MCP客户端
+	var mcpSyncClients []McpSyncClient
+	toolConfigs := modelVO.AIClientModelToolConfigs
+	if len(toolConfigs) > 0 {
+		for _, toolConfig := range toolConfigs {
+			toolID := toolConfig.ToolID
+			mcpBeanName := "AiClientToolMcp_" + strconv.FormatInt(toolID, 10)
+
+			// 从依赖容器获取MCP客户端
+			mcpClientInterface := node.GetDependency(mcpBeanName)
+			if mcpClientInterface != nil {
+				if mcpSyncClient, ok := mcpClientInterface.(McpSyncClient); ok {
+					mcpSyncClients = append(mcpSyncClients, mcpSyncClient)
+				} else {
+					log.Printf("警告: Bean %s 不是McpSyncClient类型", mcpBeanName)
+				}
+			} else {
+				log.Printf("警告: 未找到Bean %s", mcpBeanName)
+			}
+		}
 	}
 
-	if modelVO.APIKey == "" {
-		return nil, fmt.Errorf("API key cannot be empty")
-	}
+	// 创建工具回调提供者
+	toolCallbackProvider := NewSyncMcpToolCallbackProvider(mcpSyncClients)
 
-	chatModel := &OpenAiChatModel{
-		ModelName:       modelVO.ModelName,
-		BaseURL:         modelVO.BaseURL,
-		APIKey:          modelVO.APIKey,
-		CompletionsPath: modelVO.CompletionsPath,
-		EmbeddingsPath:  modelVO.EmbeddingsPath,
-		ModelType:       modelVO.ModelType,
-		ModelVersion:    modelVO.ModelVersion,
-		Timeout:         modelVO.Timeout,
-	}
-
-	// 设置默认值
-	if chatModel.BaseURL == "" {
-		chatModel.BaseURL = "https://api.openai.com"
-	}
-	if chatModel.CompletionsPath == "" {
-		chatModel.CompletionsPath = "/v1/chat/completions"
-	}
-	if chatModel.EmbeddingsPath == "" {
-		chatModel.EmbeddingsPath = "/v1/embeddings"
-	}
-	if chatModel.Timeout <= 0 {
-		chatModel.Timeout = 30 // 默认30秒超时
-	}
+	// 构建OpenAiChatModel
+	chatModel := NewOpenAiChatModelBuilder().
+		OpenAiApi(openAiApi).
+		DefaultOptions(
+			NewOpenAiChatOptionsBuilder().
+				Model(modelVO.ModelVersion).
+				ToolCallbacks(toolCallbackProvider.GetToolCallbacks()).
+				Build(),
+		).
+		Build()
 
 	return chatModel, nil
-}
-
-// GetModelRegistry 获取模型注册器（用于测试或外部访问）
-func (n *AiClientModelNode) GetModelRegistry() ModelRegistry {
-	return n.modelRegistry
-}
-
-// SetAiClientToolMcpNode 设置下一个节点（用于依赖注入）
-func (n *AiClientModelNode) SetAiClientToolMcpNode(node StrategyHandler) {
-	n.aiClientToolMcpNode = node
 }

@@ -9,13 +9,8 @@ import (
 )
 
 type AgentRepository struct {
-	clientModelDao *dao.AiClientModelDao
-}
-
-func NewAgentRepository(dao *dao.AiClientModelDao) *AgentRepository {
-	return &AgentRepository{
-		clientModelDao: dao,
-	}
+	clientModelDao   *dao.AiClientModelDao
+	clientToolMcpDao *dao.AiClientToolMcpDao
 }
 
 // QueryAiClientModelVOListByClientIds 查询 AI Client Model VO 列表
@@ -47,7 +42,7 @@ func (r *AgentRepository) QueryAiClientModelVOListByClientIds(clientIdList []int
 
 // QueryAiClientToolMcpVOListByClientIds 查询 AI Client Tool MCP VO 列表
 func (r *AgentRepository) QueryAiClientToolMcpVOListByClientIds(clientIdList []int64) []*valobj.AiClientToolMcpVO {
-	aiClientToolMcps, err := r.clientModelDao.QueryToolMcpConfigByClientIds(clientIdList)
+	aiClientToolMcps, err := r.clientToolMcpDao.QueryMcpConfigByClientIds(clientIdList)
 	if err != nil {
 		log.Printf("查询 MCP 配置失败: %v", err)
 		return nil
@@ -71,6 +66,7 @@ func (r *AgentRepository) QueryAiClientToolMcpVOListByClientIds(clientIdList []i
 				} else {
 					vo.TransportConfigSse = &sse
 				}
+			// 解析 stdio 设置
 			case "stdio":
 				var stdio valobj.TransportConfigStdio
 				if err := json.Unmarshal([]byte(m.TransportConfig), &stdio); err != nil {
