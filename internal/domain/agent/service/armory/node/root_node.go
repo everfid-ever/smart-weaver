@@ -9,12 +9,6 @@ import (
 	"sync"
 )
 
-// StrategyHandler 策略处理器接口
-type StrategyHandler interface {
-	Apply(req *entity.AiAgentEngineStarterEntity, ctx *context.DynamicContext) (string, error)
-	Get(req *entity.AiAgentEngineStarterEntity, ctx *context.DynamicContext) (StrategyHandler, error)
-}
-
 // Repository 接口定义
 type Repository interface {
 	QueryAiClientModelVOListByClientIds(clientIds []int64) ([]valobj.AiClientModelVO, error)
@@ -24,8 +18,8 @@ type Repository interface {
 // RootNode 根节点
 type RootNode struct {
 	*armory.AbstractArmorySupport
-	AiClientModelNode StrategyHandler
-	Repository        Repository
+	aiClientModelNode StrategyHandler
+	repository        Repository
 }
 
 // NewRootNode 创建根节点实例
@@ -36,8 +30,8 @@ func NewRootNode(threadPoolSize int, repo Repository, aiClientModelNode Strategy
 			Deps:       make(map[string]any),
 			Mu:         sync.Mutex{},
 		},
-		Repository:        repo,
-		AiClientModelNode: aiClientModelNode,
+		repository:        repo,
+		aiClientModelNode: aiClientModelNode,
 	}
 }
 
@@ -68,7 +62,7 @@ func (r *RootNode) MultiThread(req any, ctx any) error {
 	r.SubmitTask(func() {
 		defer wg.Done()
 		log.Printf("查询配置数据(ai_client_model) %v", requestParameter.ClientIDList)
-		list, err := r.Repository.QueryAiClientModelVOListByClientIds(requestParameter.ClientIDList)
+		list, err := r.repository.QueryAiClientModelVOListByClientIds(requestParameter.ClientIDList)
 
 		mu.Lock()
 		aiClientModelList = list
@@ -81,7 +75,7 @@ func (r *RootNode) MultiThread(req any, ctx any) error {
 	r.SubmitTask(func() {
 		defer wg.Done()
 		log.Printf("查询配置数据(ai_client_tool_mcp) %v", requestParameter.ClientIDList)
-		list, err := r.Repository.QueryAiClientToolMcpVOListByClientIds(requestParameter.ClientIDList)
+		list, err := r.repository.QueryAiClientToolMcpVOListByClientIds(requestParameter.ClientIDList)
 
 		mu.Lock()
 		aiClientToolMcpList = list
@@ -111,29 +105,48 @@ func (r *RootNode) MultiThread(req any, ctx any) error {
 
 // DoApply 执行应用逻辑
 func (r *RootNode) DoApply(requestParameter *entity.AiAgentEngineStarterEntity, dynamicContext *context.DynamicContext) (string, error) {
-	return r.Router(requestParameter, dynamicContext)
-}
+	log.Println("RootNode 开始执行")
 
-// Router 路由方法
-func (r *RootNode) Router(requestParameter *entity.AiAgentEngineStarterEntity, dynamicContext *context.DynamicContext) (string, error) {
-	// TODO 这里可以实现具体的路由逻辑
-	// 暂时返回成功状态
-	return "success", nil
+	// 先执行多线程数据查询
+	err := r.MultiThread(requestParameter, dynamicContext)
+	if err != nil {
+		log.Printf("多线程查询数据失败: %v", err)
+		return "", err
+	}
+
+	// 然后路由到下一个节点
+	return r.Router(requestParameter, dynamicContext)
 }
 
 // Get 获取下一个策略处理器
 func (r *RootNode) Get(requestParameter *entity.AiAgentEngineStarterEntity, dynamicContext *context.DynamicContext) (StrategyHandler, error) {
-	return r.AiClientModelNode, nil
+	return r.aiClientModelNode, nil
 }
 
-// Apply 实现 StrategyHandler 接口
-func (r *RootNode) Apply(req *entity.AiAgentEngineStarterEntity, ctx *context.DynamicContext) (string, error) {
-	// 先执行多线程处理
-	err := r.MultiThread(req, ctx)
+// Router 路由方法
+func (r *RootNode) Router(requestParameter *entity.AiAgentEngineStarterEntity, dynamicContext *context.DynamicContext) (string, error) {
+	nextHandler, err := r.Get(requestParameter, dynamicContext)
 	if err != nil {
+		log.Printf("获取下一个处理器失败: %v", err)
 		return "", err
 	}
 
-	// 然后执行应用逻辑
-	return r.DoApply(req, ctx)
+	if nextHandler != nil {
+		log.Println("RootNode 路由到下一个处理器")
+		return nextHandler.DoApply(requestParameter, dynamicContext)
+	}
+
+	// 如果没有下一个处理器，返回成功
+	log.Println("RootNode 处理完成")
+	return "success", nil
+}
+
+// SetAiClientModelNode 设置下一个节点（用于依赖注入）
+func (r *RootNode) SetAiClientModelNode(node StrategyHandler) {
+	r.aiClientModelNode = node
+}
+
+// GetRepository 获取仓库实例
+func (r *RootNode) GetRepository() Repository {
+	return r.repository
 }
